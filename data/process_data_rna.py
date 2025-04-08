@@ -34,7 +34,7 @@ class RNA_dataset(InMemoryDataset):
         self.emb_folder_path = 'data/representations_cv'
         
         super().__init__(root, transform, pre_transform, pre_filter)
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data, self.slices = torch.load(self.processed_paths[0],weights_only=False)
         
         
 
