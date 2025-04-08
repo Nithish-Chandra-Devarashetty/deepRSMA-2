@@ -2,7 +2,7 @@ import multiprocessing
 multiprocessing.freeze_support()
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from data import RNA_dataset, Molecule_dataset
 from model import RNA_feature_extraction, GNN_molecule, mole_seq_model, cross_attention
 from torch_geometric.loader import DataLoader
@@ -115,7 +115,7 @@ class DeepRSMA(nn.Module):
         out = self.line3(out)
         return out
 
-# Checkpoint helpers
+# Checkpointing
 def save_checkpoint(model, optimizer, epoch, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save({
@@ -140,23 +140,20 @@ if __name__ == '__main__':
     rna_dataset = RNA_dataset(RNA_type)
     molecule_dataset = Molecule_dataset(RNA_type)
 
-    all_df = pd.read_csv('data/RSM_data/' + RNA_type + '_dataset_v1.csv', delimiter='\t')
-    df = [pd.read_csv(f'data/blind_test/cold_{cold_type}{i+1}.csv', delimiter=',') for i in range(5)]
+    all_df = pd.read_csv(f'data/RSM_data/{RNA_type}_dataset_v1.csv', delimiter='\t')
+    df = [pd.read_csv(f'data/blind_test/cold_{cold_type}{i+1}.csv') for i in range(5)]
     df_cold_all = pd.concat(df, axis=0).reset_index()
 
     fold = 0
-    p_list = []
-    s_list = []
-    r_list = []
+    p_list, s_list, r_list = [], [], []
 
     for i, df_f in enumerate(df):
         test_id = all_df[all_df['Entry_ID'].isin(df_f['Entry_ID'].tolist())].index.tolist()
         train_id = [id for j, d in enumerate(df) if j != i for id in d['Entry_ID'].tolist()]
         train_id = all_df[all_df['Entry_ID'].isin(train_id)].index.tolist()
 
-        print(len(test_id), len(train_id))
         fold += 1
-        print("Fold", fold)
+        print(f"Fold {fold} - Train size: {len(train_id)} | Test size: {len(test_id)}")
 
         train_dataset = CustomDualDataset(rna_dataset[train_id], molecule_dataset[train_id])
         test_dataset = CustomDualDataset(rna_dataset[test_id], molecule_dataset[test_id])
@@ -169,12 +166,11 @@ if __name__ == '__main__':
         loss_fct = nn.MSELoss()
 
         max_p, max_s, max_rmse = -1, 0, 0
-
-        # Checkpoint path
         checkpoint_path = f'checkpoints/model_blind_{cold_type}{seed_dataset}_{fold}_{seed}.pth'
         start_epoch = load_checkpoint(model, optimizer, checkpoint_path)
 
         for epo in range(start_epoch, EPOCH):
+            model.train()
             train_loss = 0
             for step, (batch_rna, batch_mole) in enumerate(train_loader):
                 optimizer.zero_grad()
@@ -184,37 +180,32 @@ if __name__ == '__main__':
                 optimizer.step()
                 train_loss += loss.item()
 
+            # Evaluation
+            model.eval()
+            y_label, y_pred = [], []
             with torch.no_grad():
-                model.eval()
-                y_label = []
-                y_pred = []
                 for step, (batch_rna_test, batch_mole_test) in enumerate(test_loader):
                     label = Variable(torch.from_numpy(np.array(batch_rna_test.y))).float()
                     score = model(batch_rna_test.to(device), batch_mole_test.to(device))
                     logits = torch.squeeze(score).detach().cpu().numpy()
                     label_ids = label.to('cpu').numpy()
-                    test_loss = loss_fct(torch.squeeze(score, 1).cpu(), label)
                     y_label += label_ids.flatten().tolist()
                     y_pred += logits.flatten().tolist()
 
-            model.train()
             p = pearsonr(y_label, y_pred)
             s = spearmanr(y_label, y_pred)
             rmse = np.sqrt(mean_squared_error(y_label, y_pred))
 
             if max_p < p[0]:
-                print('epo:', epo, 'pcc:', p[0], 'scc:', s[0], 'rmse:', rmse)
+                print(f'[Epoch {epo}] PCC: {p[0]:.4f}, SCC: {s[0]:.4f}, RMSE: {rmse:.4f}')
                 max_p, max_s, max_rmse = p[0], s[0], rmse
                 os.makedirs("save", exist_ok=True)
                 torch.save(model.state_dict(), f'save/model_blind_{cold_type}{seed_dataset}_{fold}_{seed}.pth')
 
-            # Save after every epoch
             save_checkpoint(model, optimizer, epo, checkpoint_path)
 
         p_list.append(max_p)
-        r_list.append(max_rmse)
         s_list.append(max_s)
+        r_list.append(max_rmse)
 
-        print('p:', np.mean(p_list))
-        print('s:', np.mean(s_list))
-        print('rmse:', np.mean(r_list))
+        print(f'[Fold {fold}] Mean PCC: {np.mean(p_list):.4f}, SCC: {np.mean(s_list):.4f}, RMSE: {np.mean(r_list):.4f}')
