@@ -16,10 +16,10 @@ from sklearn.metrics import mean_squared_error
 import random
 import pandas as pd
 
-from torch.serialization import add_safe_globals
+#from torch.serialization import add_safe_globals
 from torch_geometric.data import Data
 from torch_geometric.data.data import DataEdgeAttr
-add_safe_globals([Data, DataEdgeAttr])
+#add_safe_globals([Data, DataEdgeAttr])
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
