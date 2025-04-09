@@ -150,7 +150,7 @@ if __name__ == "__main__":
     rna_dataset = RNA_dataset(RNA_type)
     mol_dataset = Molecule_dataset(RNA_type)
     all_df = pd.read_csv(f'data/RSM_data/{RNA_type}_dataset_v1.csv', delimiter='\t')
-    folds = [pd.read_csv(f'data/blind_test/cold_{cold_type}{i+1}.csv') for i in range(5)]
+    folds = [pd.read_csv(f'data/blind_test/cold_{cold_type}{i+1}.csv', delimiter=',') for i in range(5)]
 
     p_list = []
     s_list = []
@@ -158,7 +158,7 @@ if __name__ == "__main__":
 
     for fold_idx, test_df in enumerate(folds):
         print(f"\n🚀 Starting Fold {fold_idx+1}")
-        test_ids = all_df[all_df['Entry赴积累了 Entry_ID'].isin(test_df['Entry_ID']).index.tolist()
+        test_ids = all_df[all_df['Entry_ID'].isin(test_df['Entry_ID'])].index.tolist()
         
         train_ids = []
         for j, other_df in enumerate(folds):
