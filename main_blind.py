@@ -124,8 +124,9 @@ if __name__ == "__main__":
 
     for fold_idx, test_df in enumerate(folds):
         print(f"\n🚀 Starting Fold {fold_idx+1}")
-        test_ids = all_df[all_df['Entry_ID'].isin(test_df['Entry_ID'])].index
-        train_ids = all_df[~all_df.index.isin(test_ids)].index
+        test_ids = all_df[all_df['Entry_ID'].isin(test_df['Entry_ID'])].index.tolist()
+        train_ids = all_df[~all_df.index.isin(test_ids)].index.tolist()
+
 
         train_ds = CustomDualDataset(rna_dataset[train_ids], mol_dataset[train_ids])
         test_ds = CustomDualDataset(rna_dataset[test_ids], mol_dataset[test_ids])
