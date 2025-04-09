@@ -1,10 +1,8 @@
 import os
 import pandas as pd
 import torch
-from torch_geometric.data import Data
-from torch_geometric.data import InMemoryDataset
+from torch_geometric.data import Data, InMemoryDataset
 import numpy as np
-from torch_geometric.data import Data
 
 class RNA_dataset(InMemoryDataset):
     def __init__(self,
@@ -13,87 +11,96 @@ class RNA_dataset(InMemoryDataset):
                  transform=None,
                  pre_transform=None,
                  pre_filter=None):
-        
-        root = "dataset/rna/" + RNA_type
-            
 
-        # All RNA or 6 RNA subtype: All_sf; Aptamers; miRNA; Repeats; Ribosomal; Riboswitch; Viral_RNA;
-        csv_file_path = 'data/RSM_data/' + RNA_type + '_dataset_v1.csv'  
-        self.df = pd.read_csv(csv_file_path, delimiter='\t')
-      
-        # contact map folder
-        self.concat_folder_path1 = 'data/RNA_contact/Aptamers_contact' 
-        self.concat_folder_path2 = 'data/RNA_contact/miRNA_contact' 
-        self.concat_folder_path3 = 'data/RNA_contact/Repeats_contact' 
-        self.concat_folder_path4 = 'data/RNA_contact/Ribosomal_contact' 
-        self.concat_folder_path5 = 'data/RNA_contact/Riboswitch_contact' 
-        self.concat_folder_path6 = 'data/RNA_contact/Viral_RNA_contact' 
-        self.concat_folder_path = [self.concat_folder_path1,self.concat_folder_path2,self.concat_folder_path3,self.concat_folder_path4,self.concat_folder_path5,self.concat_folder_path6]
+        self.RNA_type = RNA_type
+        self.root = os.path.join(root, RNA_type)
+        self.csv_path = f"data/RSM_data/{RNA_type}_dataset_v1.csv"
+        self.df = pd.read_csv(self.csv_path, delimiter='\t')
 
-        # language model embedding floder
+        # Paths for contact maps
+        self.contact_map_dirs = {
+            "Aptamers": "data/RNA_contact/Aptamers_contact",
+            "miRNA": "data/RNA_contact/miRNA_contact",
+            "Repeats": "data/RNA_contact/Repeats_contact",
+            "Ribosomal": "data/RNA_contact/Ribosomal_contact",
+            "Riboswitch": "data/RNA_contact/Riboswitch_contact",
+            "Viral_RNA": "data/RNA_contact/Viral_RNA_contact"
+        }
+
+        # Embedding path
         self.emb_folder_path = 'data/representations_cv'
-        
-        super().__init__(root, transform, pre_transform, pre_filter)
-        self.data, self.slices = torch.load(self.processed_paths[0],weights_only=False)
-        
-        
 
+        super().__init__(self.root, transform, pre_transform, pre_filter)
+        self.data, self.slices = torch.load(self.processed_paths[0], weights_only=False)
 
     @property
     def processed_file_names(self):
         return "data_rna.pt"
 
-
     def process(self):
-
         data_list = []
-        for index, row in self.df.iterrows():
-            id_value = row['Entry_ID']
-            if len(row['Target_RNA_sequence']) > 512:
-                sequence = row['Target_RNA_sequence'][0:511]
-            else:  
-                sequence = row['Target_RNA_sequence']
+
+        for _, row in self.df.iterrows():
+            entry_id = row['Entry_ID']
             target_id = row["Target_RNA_ID"]
-            
-            for i in range(0,6):
-                file_path = os.path.join(self.concat_folder_path[i], f"{id_value}.prob_single")
-                if os.path.exists(file_path):
-                    break
-            if os.path.exists(file_path):
-                matrix = np.loadtxt(file_path)
-                # contact map
-                matrix[matrix < 0.5] = 0
-                matrix[matrix > 0.5] = 1
-                one_hot_sequence = [char_to_one_hot(char) for char in sequence]
-                edges = np.argwhere(matrix == 1)
+            sequence = row['Target_RNA_sequence'][:512]  # Cap at 512 tokens
+            y_value = row['pKd']
 
-                x = torch.tensor(one_hot_sequence, dtype=torch.float32)
-                edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
-                y = row['pKd']  
-                T_id = row['Target_RNA_ID']
-                E_id = row['Entry_ID']
-                
-                # read language model embedding
-                emb_file_path = os.path.join(self.emb_folder_path, f"{target_id}.npy")
-                if os.path.exists(emb_file_path):
-                    rna_emb = torch.tensor(np.load(emb_file_path))
-                else:
-                    print('bad', target_id)
-                    
-                rna_len = x.size()[0]
-                data = Data(x=x, edge_index=edge_index, y=y, t_id=T_id, e_id=E_id, emb=rna_emb, rna_len = rna_len )
+            # Load the first available contact map
+            file_path = self._find_contact_map(entry_id)
+            if file_path is None:
+                print(f"[Warning] Contact map not found for {entry_id}")
+                continue
 
-                data_list.append(data)
-            else:
-                print(f"File not found for id {id_value}")
-        
+            try:
+                contact_map = np.loadtxt(file_path)
+                contact_map = (contact_map >= 0.5).astype(np.float32)
+                edges = np.argwhere(contact_map == 1)
+            except Exception as e:
+                print(f"[Error] Failed to load contact map for {entry_id}: {e}")
+                continue
+
+            try:
+                emb_path = os.path.join(self.emb_folder_path, f"{target_id}.npy")
+                rna_emb = torch.tensor(np.load(emb_path), dtype=torch.float32)
+            except FileNotFoundError:
+                print(f"[Missing] RNA embedding not found for {target_id}")
+                continue
+
+            one_hot_seq = [char_to_one_hot(c) for c in sequence]
+            x = torch.tensor(one_hot_seq, dtype=torch.float32)
+            edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+            rna_len = x.shape[0]
+
+            data = Data(
+                x=x,
+                edge_index=edge_index,
+                y=torch.tensor([y_value], dtype=torch.float32),
+                t_id=target_id,
+                e_id=entry_id,
+                emb=rna_emb,
+                rna_len=rna_len
+            )
+            data_list.append(data)
+
         data, slices = self.collate(data_list)
-        print("Saving...")
+        print(f"[Info] Saving {len(data_list)} RNA samples to {self.processed_paths[0]}")
         torch.save((data, slices), self.processed_paths[0])
 
-# nucleotide to one-hot
+    def _find_contact_map(self, entry_id):
+        for path in self.contact_map_dirs.values():
+            file_path = os.path.join(path, f"{entry_id}.prob_single")
+            if os.path.exists(file_path):
+                return file_path
+        return None
+
+# Nucleotide to one-hot (A, U, G, C, T, X, Y)
 def char_to_one_hot(char):
-    if char == 'T':
-        print("T")
-    mapping = {'A': 0, 'U': 1, 'G': 2, 'C': 3, 'T':1, 'X':4, 'Y':5}
-    return [mapping[char]]
+    mapping = {'A': [1, 0, 0, 0, 0, 0, 0],
+               'U': [0, 1, 0, 0, 0, 0, 0],
+               'G': [0, 0, 1, 0, 0, 0, 0],
+               'C': [0, 0, 0, 1, 0, 0, 0],
+               'T': [0, 1, 0, 0, 0, 0, 0],
+               'X': [0, 0, 0, 0, 1, 0, 0],
+               'Y': [0, 0, 0, 0, 0, 1, 0]}
+    return mapping.get(char, [0, 0, 0, 0, 0, 0, 1])  # Unknown chars → [0 0 0 0 0 0 1]
