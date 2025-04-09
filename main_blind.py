@@ -14,7 +14,7 @@ from sklearn.metrics import mean_squared_error
 from time import time
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Fixed to cuda:0
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Hyperparameters (aligned with Code B)
 BATCH_SIZE = 16
@@ -135,15 +135,6 @@ def save_checkpoint(model, optimizer, epoch, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save({'epoch': epoch, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}, path)
 
-def load_checkpoint(model, optimizer, path):
-    if os.path.exists(path):
-        ckpt = torch.load(path, map_location=device)
-        model.load_state_dict(ckpt['model'])
-        optimizer.load_state_dict(ckpt['optimizer'])
-        print(f"Resumed from epoch {ckpt['epoch']+1}")
-        return ckpt['epoch'] + 1
-    return 0
-
 # Main training logic
 if __name__ == "__main__":
     set_seed(seed)
@@ -151,6 +142,9 @@ if __name__ == "__main__":
     mol_dataset = Molecule_dataset(RNA_type)
     all_df = pd.read_csv(f'data/RSM_data/{RNA_type}_dataset_v1.csv', delimiter='\t')
     folds = [pd.read_csv(f'data/blind_test/cold_{cold_type}{i+1}.csv', delimiter=',') for i in range(5)]
+
+    os.makedirs('checkpoints', exist_ok=True)
+    os.makedirs('save', exist_ok=True)
 
     p_list = []
     s_list = []
@@ -178,16 +172,14 @@ if __name__ == "__main__":
         optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=1e-7)
         loss_fn = nn.MSELoss()
 
-        # Load periodic checkpoint if exists
         checkpoint_path = f'checkpoints/blind_fold{fold_idx+1}.pth'
         best_path = f'save/model_blind_{cold_type}{seed_dataset}_{fold_idx+1}_{seed}.pth'
-        start_epoch = load_checkpoint(model, optimizer, checkpoint_path) if os.path.exists(checkpoint_path) else 0
 
         max_p = -1
         max_s = 0
         max_rmse = 0
 
-        for epoch in range(start_epoch, EPOCH):
+        for epoch in range(EPOCH):
             start_time = time()
             model.train()
             total_loss = 0
@@ -202,12 +194,12 @@ if __name__ == "__main__":
                 total_loss += loss.item()
 
             rmse, pcc, scc = evaluate(model, test_loader)
-            save_checkpoint(model, optimizer, epoch, checkpoint_path)  # Save every epoch
+            save_checkpoint(model, optimizer, epoch, checkpoint_path)
             if pcc > max_p:
                 max_p = pcc
                 max_s = scc
                 max_rmse = rmse
-                torch.save(model.state_dict(), best_path)  # Save best PCC model
+                torch.save(model.state_dict(), best_path)
                 print(f"epo: {epoch} pcc: {pcc:.4f} scc: {scc:.4f} rmse: {rmse:.4f}")
 
         p_list.append(max_p)
