@@ -70,6 +70,16 @@ class DeepRSMA(nn.Module):
         mol_seq_emb, _, mol_seq_mask = self.mole_seq_model(mol_batch, device)
         mol_seq_final = (mol_seq_emb[-1] * mol_seq_mask.unsqueeze(-1)).mean(dim=1)
 
+        # Move masks and final tensors to device
+        rna_seq_mask = rna_seq_mask.to(device)
+        rna_graph_mask = rna_graph_mask.to(device)
+        rna_seq_final = rna_seq_final.to(device)
+        rna_graph_final = rna_graph_final.to(device)
+        mol_seq_mask = mol_seq_mask.to(device)
+        mol_seq_final = mol_seq_final.to(device)
+        mol_graph_final = mol_graph_final.to(device)
+
+        # Padding mol_graphs
         max_graph_len = 128
         padded_graphs = torch.zeros(len(mol_batch), max_graph_len, hidden_dim, device=device)
         masks = torch.zeros(len(mol_batch), max_graph_len, device=device)
@@ -77,7 +87,7 @@ class DeepRSMA(nn.Module):
         flag = 0
         graph_lens = mol_batch.graph_len.to(device) if isinstance(mol_batch.graph_len, torch.Tensor) else mol_batch.graph_len
         for i, l in enumerate(graph_lens):
-            padded_graphs[i, :l] = mol_graph_emb[flag:flag + l]
+            padded_graphs[i, :l] = mol_graph_emb[flag:flag + l].to(device)
             masks[i, :l] = 1
             flag += l
 
@@ -126,7 +136,6 @@ if __name__ == "__main__":
         print(f"\n🚀 Starting Fold {fold_idx+1}")
         test_ids = all_df[all_df['Entry_ID'].isin(test_df['Entry_ID'])].index.tolist()
         train_ids = all_df[~all_df.index.isin(test_ids)].index.tolist()
-
 
         train_ds = CustomDualDataset(rna_dataset[train_ids], mol_dataset[train_ids])
         test_ds = CustomDualDataset(rna_dataset[test_ids], mol_dataset[test_ids])
