@@ -16,11 +16,6 @@ from sklearn.metrics import mean_squared_error
 import random
 import pandas as pd
 
-#from torch.serialization import add_safe_globals
-from torch_geometric.data import Data
-from torch_geometric.data.data import DataEdgeAttr
-#add_safe_globals([Data, DataEdgeAttr])
-
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 
@@ -175,7 +170,8 @@ if __name__ == '__main__':
             for step, (batch_rna, batch_mole) in enumerate(train_loader):
                 optimizer.zero_grad()
                 pre = model(batch_rna.to(device), batch_mole.to(device))
-                loss = loss_fct(pre.squeeze(dim=1), batch_rna.y)
+                labels = batch_rna.y.to(device).float()
+                loss = loss_fct(pre.squeeze(dim=1), labels)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
