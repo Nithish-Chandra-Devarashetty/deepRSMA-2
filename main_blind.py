@@ -131,7 +131,7 @@ def evaluate(model, loader):
             labels.extend(label.numpy())
     preds = np.array(preds)
     labels = np.array(labels)
-    rmse = mean_squared_error(labels, preds, squared=False)
+    rmse = mean_squared_error(labels, preds) ** 0.5  # Manual RMSE
     pcc = pearsonr(labels, preds)[0]
     scc = spearmanr(labels, preds)[0]
     return rmse, pcc, scc
