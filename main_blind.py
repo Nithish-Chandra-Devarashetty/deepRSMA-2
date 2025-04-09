@@ -18,7 +18,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Hyperparameters
 BATCH_SIZE = 32
-EPOCH = 500
+EPOCH = 1500
 hidden_dim = 128
 seed = 42
 LR = 1e-4
@@ -70,7 +70,6 @@ class DeepRSMA(nn.Module):
         mol_seq_emb, _, mol_seq_mask = self.mole_seq_model(mol_batch, device)
         mol_seq_final = (mol_seq_emb[-1] * mol_seq_mask.unsqueeze(-1)).mean(dim=1)
 
-        # Move masks and final tensors to device
         rna_seq_mask = rna_seq_mask.to(device)
         rna_graph_mask = rna_graph_mask.to(device)
         rna_seq_final = rna_seq_final.to(device)
@@ -79,7 +78,6 @@ class DeepRSMA(nn.Module):
         mol_seq_final = mol_seq_final.to(device)
         mol_graph_final = mol_graph_final.to(device)
 
-        # Padding mol_graphs
         max_graph_len = 128
         padded_graphs = torch.zeros(len(mol_batch), max_graph_len, hidden_dim, device=device)
         masks = torch.zeros(len(mol_batch), max_graph_len, device=device)
@@ -121,10 +119,26 @@ def load_checkpoint(model, optimizer, path):
         return ckpt['epoch'] + 1
     return 0
 
+def evaluate(model, loader):
+    model.eval()
+    preds = []
+    labels = []
+    with torch.no_grad():
+        for rna_batch, mol_batch in loader:
+            pred = model(rna_batch.to(device), mol_batch.to(device)).squeeze().detach().cpu()
+            label = rna_batch.y.cpu().float()
+            preds.extend(pred.numpy())
+            labels.extend(label.numpy())
+    preds = np.array(preds)
+    labels = np.array(labels)
+    rmse = mean_squared_error(labels, preds, squared=False)
+    pcc = pearsonr(labels, preds)[0]
+    scc = spearmanr(labels, preds)[0]
+    return rmse, pcc, scc
+
 # Main training logic
 if __name__ == "__main__":
     set_seed(seed)
-
     rna_dataset = RNA_dataset(RNA_type)
     mol_dataset = Molecule_dataset(RNA_type)
     all_df = pd.read_csv(f'data/RSM_data/{RNA_type}_dataset_v1.csv', delimiter='\t')
@@ -166,5 +180,6 @@ if __name__ == "__main__":
                 scaler.update()
                 total_loss += loss.item()
 
-            print(f"[Epoch {epoch}] Loss: {total_loss/len(train_loader):.4f} | Time: {time() - start_time:.2f}s")
+            rmse, pcc, scc = evaluate(model, test_loader)
+            print(f"[Epoch {epoch}] Loss: {total_loss/len(train_loader):.4f} | RMSE: {rmse:.4f} | PCC: {pcc:.4f} | SCC: {scc:.4f} | Time: {time() - start_time:.2f}s")
             save_checkpoint(model, optimizer, epoch, checkpoint_path)
