@@ -14,7 +14,7 @@ from sklearn.metrics import mean_squared_error
 from time import time
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Fixed to cuda:0
 
 # Hyperparameters (aligned with Code B)
 BATCH_SIZE = 16
