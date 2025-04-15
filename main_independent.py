@@ -75,7 +75,7 @@ class DeepRSMA(nn.Module):
         self.rna_graph_model = RNA_feature_extraction(hidden_dim, hidden_dim)
 
         # Mole graph
-        self.mole_graph_model = GNN_molecule(hidden_dim)
+        self.mole_graph_model = GNN_molecule(hidden_dim, hidden_dim)
         # Mole seq
         self.mole_seq_model = mole_seq_model(hidden_dim)
 
