@@ -21,7 +21,7 @@ class RNA_dataset_independent(InMemoryDataset):
                  pre_filter=None):
         root = "dataset/rna_independent/"
 
-        csv_file_path_qsar = 'independent_data.csv'
+        csv_file_path_qsar = 'data/independent_data.csv'
 
         # 使用pandas读取CSV文件
         self.df_qsar = pd.read_csv(csv_file_path_qsar, delimiter=',')

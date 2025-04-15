@@ -124,7 +124,7 @@ class Molecule_dataset_independent(InMemoryDataset):
                 edge_attr = np.array(edge_features_list, dtype=np.int64)
                 data.x = torch.from_numpy(x).to(torch.int64)
                 data.graph_len = len(data.x)
-                data.x2 = torch.from_numpy(x2).to(torch.int64)
+                data.x2 = torch.from_numpy(x).to(torch.int64)
 
                 data.edge_index = torch.from_numpy(edge_index).to(torch.int64)
                 data.edge_attr = torch.from_numpy(edge_attr).to(torch.int64)
