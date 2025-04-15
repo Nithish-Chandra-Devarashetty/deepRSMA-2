@@ -17,7 +17,7 @@ torch.set_printoptions(profile="full")
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-hidden_dim = 16
+hidden_dim = 128
 
 EPOCH = 200
 RNA_type = 'Viral_RNA_independent'
@@ -211,7 +211,8 @@ for epoch in range(0,EPOCH):
             max_p = p[0]
             print(' ')
             print('Best:', 'epo:',epoch, 'pcc:',p[0],'scc: ',s[0],'rmse:',rmse)
-
+            
+            os.makedirs('save', exist_ok=True)
             torch.save(model.state_dict(), 'save/' + 'model_independent_'+str(seed)+'.pth')
 
         
