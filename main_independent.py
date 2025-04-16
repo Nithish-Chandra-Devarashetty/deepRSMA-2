@@ -96,19 +96,29 @@ class DeepRSMA(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, rna_batch, mole_batch):
-        # Process RNA data
-        # Extract features from RNA batch
-        x = rna_batch.x.to(device)
-        edge_index = rna_batch.edge_index.to(device)
+        try:
+            # Process RNA data
+            # Extract features from RNA batch
+            x = rna_batch.x.to(device)
+            edge_index = rna_batch.edge_index.to(device)
 
-        # Create edge attributes (assuming they're not provided in the batch)
-        edge_attr = torch.ones(edge_index.size(1), 1).to(device)
+            # Create edge attributes (assuming they're not provided in the batch)
+            edge_attr = torch.ones(edge_index.size(1), 1).to(device)
 
-        # Create batch index for the graph pooling
-        batch_idx = torch.zeros(x.size(0), dtype=torch.long).to(device)
+            # Create batch index for the graph pooling
+            batch_idx = torch.zeros(x.size(0), dtype=torch.long).to(device)
 
-        # Get graph embeddings using the RNA feature extraction model
-        rna_graph_final = self.rna_graph_model(x, edge_index, edge_attr, batch_idx)
+            # Optional debugging
+            # print(f"RNA node features: shape={x.shape}, dtype={x.dtype}")
+            # print(f"RNA edge_index: shape={edge_index.shape}, dtype={edge_index.dtype}")
+            # print(f"RNA edge_attr: shape={edge_attr.shape}, dtype={edge_attr.dtype}")
+            # print(f"RNA batch_idx: shape={batch_idx.shape}, dtype={batch_idx.dtype}")
+
+            # Get graph embeddings using the RNA feature extraction model
+            rna_graph_final = self.rna_graph_model(x, edge_index, edge_attr, batch_idx)
+        except Exception as e:
+            print(f"Error in RNA processing: {e}")
+            raise
 
         # Get RNA sequence embedding
         rna_emb = rna_batch.emb.to(device)
@@ -128,17 +138,27 @@ class DeepRSMA(nn.Module):
         # Set the sequence final embedding
         rna_seq_final = rna_emb
 
-        # Process molecule data
-        # Extract features from molecule batch
-        mole_x = mole_batch.x.to(device)
-        mole_edge_index = mole_batch.edge_index.to(device)
-        mole_edge_attr = mole_batch.edge_attr.float().to(device)
+        try:
+            # Process molecule data
+            # Extract features from molecule batch
+            mole_x = mole_batch.x.to(device)
+            mole_edge_index = mole_batch.edge_index.to(device)
+            mole_edge_attr = mole_batch.edge_attr.to(device)  # Type conversion handled in the model
 
-        # Create batch index for the graph pooling
-        mole_batch_idx = torch.zeros(mole_x.size(0), dtype=torch.long).to(device)
+            # Create batch index for the graph pooling
+            mole_batch_idx = torch.zeros(mole_x.size(0), dtype=torch.long).to(device)
 
-        # Get graph embeddings using the molecule feature extraction model
-        mole_graph_final = self.mole_graph_model(mole_x, mole_edge_index, mole_edge_attr, mole_batch_idx)
+            # Optional debugging
+            # print(f"Molecule node features: shape={mole_x.shape}, dtype={mole_x.dtype}")
+            # print(f"Molecule edge_index: shape={mole_edge_index.shape}, dtype={mole_edge_index.dtype}")
+            # print(f"Molecule edge_attr: shape={mole_edge_attr.shape}, dtype={mole_edge_attr.dtype}")
+            # print(f"Molecule batch_idx: shape={mole_batch_idx.shape}, dtype={mole_batch_idx.dtype}")
+
+            # Get graph embeddings using the molecule feature extraction model
+            mole_graph_final = self.mole_graph_model(mole_x, mole_edge_index, mole_edge_attr, mole_batch_idx)
+        except Exception as e:
+            print(f"Error in molecule processing: {e}")
+            raise
 
         # For consistency with the original implementation
         mole_graph_emb = mole_x
