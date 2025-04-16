@@ -53,8 +53,12 @@ class RNA_feature_extraction(nn.Module):
 
     def forward(self, x, edge_index, edge_attr, batch):
         try:
-            # Print sizes for debugging
-            print(f"RNA_feature_extraction - x size: {x.size()}, batch size: {batch.size()}")
+            # Print all input dimensions for comprehensive debugging
+            print("\n=== RNA_feature_extraction Input Dimensions ===")
+            print(f"x: {x.shape}, dtype: {x.dtype}, device: {x.device}")
+            print(f"edge_index: {edge_index.shape}, dtype: {edge_index.dtype}, device: {edge_index.device}")
+            print(f"edge_attr: {edge_attr.shape}, dtype: {edge_attr.dtype}, device: {edge_attr.device}")
+            print(f"batch: {batch.shape}, dtype: {batch.dtype}, device: {batch.device}")
 
             # Ensure all tensors are on the same device
             device = x.device
@@ -104,10 +108,12 @@ class RNA_feature_extraction(nn.Module):
             # Apply first GINEConv layer
             x = self.conv1(x, edge_index, edge_attr)
             x = F.relu(x)
+            print(f"After first GINEConv: x shape: {x.shape}")
 
             # Apply second GINEConv layer
             x = self.conv2(x, edge_index, edge_attr)
             x = F.relu(x)
+            print(f"After second GINEConv: x shape: {x.shape}")
 
             # For global pooling, we need to ensure batch has the same size as x
             if batch.size(0) != x.size(0):

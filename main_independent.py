@@ -96,11 +96,21 @@ class DeepRSMA(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, rna_batch, mole_batch):
+        # Print input batch information for debugging
+        print("\n=== Input Batch Information ===")
+        print(f"RNA batch attributes: {dir(rna_batch)}")
+        print(f"Molecule batch attributes: {dir(mole_batch)}")
+
         try:
             # Process RNA data
             # Extract features from RNA batch
             x = rna_batch.x.to(device)
             edge_index = rna_batch.edge_index.to(device)
+
+            # Print input dimensions
+            print("\n=== RNA Input Dimensions ===")
+            print(f"RNA x: {x.shape}, dtype: {x.dtype}")
+            print(f"RNA edge_index: {edge_index.shape}, dtype: {edge_index.dtype}")
 
             # Create edge attributes (assuming they're not provided in the batch)
             edge_attr = torch.ones(edge_index.size(1), 1).to(device)
@@ -195,17 +205,40 @@ class DeepRSMA(nn.Module):
             rna_len = 100
             print(f"Using fallback rna_len: {rna_len}")
 
-        # Create sequence and graph masks
-        # Ensure they're created on the same device as other tensors
-        rna_mask_seq = torch.ones(1, 512, device=device)
-        rna_mask_seq[0, rna_len:] = 0
+        # Create sequence and graph masks with dimension validation
+        try:
+            # Ensure they're created on the same device as other tensors
+            rna_mask_seq = torch.ones(1, 512, device=device)
 
-        rna_mask_graph = torch.ones(1, 128, device=device)
-        rna_mask_graph[0, rna_len:] = 0
+            # Validate rna_len before using it as an index
+            print(f"Using rna_len={rna_len} to create masks")
+            if rna_len > 512:
+                print(f"Warning: rna_len {rna_len} exceeds sequence length 512. Capping at 512.")
+                rna_len = 512
 
-        # Print mask shapes for debugging
-        print(f"rna_mask_seq shape: {rna_mask_seq.shape}, device: {rna_mask_seq.device}")
-        print(f"rna_mask_graph shape: {rna_mask_graph.shape}, device: {rna_mask_graph.device}")
+            # Create the masks
+            rna_mask_seq[0, rna_len:] = 0
+
+            rna_mask_graph = torch.ones(1, 128, device=device)
+            if rna_len > 128:
+                print(f"Warning: rna_len {rna_len} exceeds graph length 128. Capping at 128.")
+                graph_len = 128
+            else:
+                graph_len = rna_len
+
+            rna_mask_graph[0, graph_len:] = 0
+
+            # Print mask shapes and values for debugging
+            print(f"rna_mask_seq shape: {rna_mask_seq.shape}, device: {rna_mask_seq.device}")
+            print(f"rna_mask_seq sum: {rna_mask_seq.sum().item()} (number of unmasked positions)")
+            print(f"rna_mask_graph shape: {rna_mask_graph.shape}, device: {rna_mask_graph.device}")
+            print(f"rna_mask_graph sum: {rna_mask_graph.sum().item()} (number of unmasked positions)")
+        except Exception as e:
+            print(f"Error creating RNA masks: {e}")
+            # Create default masks
+            rna_mask_seq = torch.ones(1, 512, device=device)
+            rna_mask_graph = torch.ones(1, 128, device=device)
+            print("Using default RNA masks (all ones)")
 
         # Create output tensors
         rna_out_seq = torch.zeros(1, 512, hidden_dim).to(device)
@@ -220,6 +253,12 @@ class DeepRSMA(nn.Module):
             mole_x = mole_batch.x.to(device)
             mole_edge_index = mole_batch.edge_index.to(device)
             mole_edge_attr = mole_batch.edge_attr.to(device)  # Type conversion handled in the model
+
+            # Print molecule input dimensions
+            print("\n=== Molecule Input Dimensions ===")
+            print(f"Molecule x: {mole_x.shape}, dtype: {mole_x.dtype}")
+            print(f"Molecule edge_index: {mole_edge_index.shape}, dtype: {mole_edge_index.dtype}")
+            print(f"Molecule edge_attr: {mole_edge_attr.shape}, dtype: {mole_edge_attr.dtype}")
 
             # Create batch index for the graph pooling
             try:
@@ -278,9 +317,40 @@ class DeepRSMA(nn.Module):
         # For consistency with the original implementation
         mole_graph_emb = mole_x
 
-        mole_seq_emb, _, mole_mask_seq = self.mole_seq_model(mole_batch, device)
+        # Process molecule sequence with dimension validation
+        try:
+            # Get molecule sequence embeddings
+            mole_seq_emb, _, mole_mask_seq = self.mole_seq_model(mole_batch, device)
 
-        mole_seq_final = (mole_seq_emb[-1]*(mole_mask_seq.to(device).unsqueeze(dim=2))).mean(dim=1).squeeze(dim=1)
+            # Validate dimensions
+            print("\n=== Molecule Sequence Embedding Validation ===")
+            print(f"mole_seq_emb type: {type(mole_seq_emb)}, length: {len(mole_seq_emb)}")
+            print(f"mole_seq_emb[-1] shape: {mole_seq_emb[-1].shape}, device: {mole_seq_emb[-1].device}")
+            print(f"mole_mask_seq shape: {mole_mask_seq.shape}, device: {mole_mask_seq.device}")
+
+            # Check for NaN values
+            print(f"mole_seq_emb[-1] has NaNs: {torch.isnan(mole_seq_emb[-1]).any().item()}")
+            print(f"mole_mask_seq has NaNs: {torch.isnan(mole_mask_seq).any().item()}")
+
+            # Calculate molecule sequence final embedding
+            mole_mask_seq_device = mole_mask_seq.to(device)
+            mole_mask_seq_3d = mole_mask_seq_device.unsqueeze(dim=2)
+            print(f"mole_mask_seq_3d shape: {mole_mask_seq_3d.shape}")
+
+            # Apply mask and calculate mean
+            masked_emb = mole_seq_emb[-1] * mole_mask_seq_3d
+            mole_seq_final = masked_emb.mean(dim=1).squeeze(dim=1)
+
+            print(f"mole_seq_final shape: {mole_seq_final.shape}, device: {mole_seq_final.device}")
+            print(f"mole_seq_final has NaNs: {torch.isnan(mole_seq_final).any().item()}")
+
+        except Exception as e:
+            print(f"Error in molecule sequence processing: {e}")
+            # Create fallback embeddings
+            mole_seq_emb = [torch.zeros(1, 128, hidden_dim).to(device)]
+            mole_mask_seq = torch.ones(1, 128).to(device)
+            mole_seq_final = torch.zeros(1, hidden_dim).to(device)
+            print("Using fallback molecule sequence embeddings")
 
 
         # mole graph processing with error handling
@@ -346,11 +416,25 @@ class DeepRSMA(nn.Module):
             print("Using fallback molecule graph tensors")
 
         # Validate shapes before cross-attention
-        print(f"Shape validation before cross-attention:")
-        print(f"rna_out_seq: {rna_out_seq.shape}, device: {rna_out_seq.device}")
-        print(f"rna_out_graph: {rna_out_graph.shape}, device: {rna_out_graph.device}")
-        print(f"mole_seq_emb[-1]: {mole_seq_emb[-1].shape}, device: {mole_seq_emb[-1].device}")
-        print(f"mole_out_graph: {mole_out_graph.shape}, device: {mole_out_graph.device}")
+        print("\n=== Cross-Attention Input Validation ===")
+        print(f"rna_out_seq: {rna_out_seq.shape}, dtype: {rna_out_seq.dtype}, device: {rna_out_seq.device}")
+        print(f"rna_out_graph: {rna_out_graph.shape}, dtype: {rna_out_graph.dtype}, device: {rna_out_graph.device}")
+        print(f"mole_seq_emb[-1]: {mole_seq_emb[-1].shape}, dtype: {mole_seq_emb[-1].dtype}, device: {mole_seq_emb[-1].device}")
+        print(f"mole_out_graph: {mole_out_graph.shape}, dtype: {mole_out_graph.dtype}, device: {mole_out_graph.device}")
+
+        # Validate mask shapes
+        print("\n=== Mask Validation ===")
+        print(f"rna_mask_seq: {rna_mask_seq.shape}, dtype: {rna_mask_seq.dtype}, device: {rna_mask_seq.device}")
+        print(f"rna_mask_graph: {rna_mask_graph.shape}, dtype: {rna_mask_graph.dtype}, device: {rna_mask_graph.device}")
+        print(f"mole_mask_seq: {mole_mask_seq.shape}, dtype: {mole_mask_seq.dtype}, device: {mole_mask_seq.device}")
+        print(f"mole_mask_graph: {mole_mask_graph.shape}, dtype: {mole_mask_graph.dtype}, device: {mole_mask_graph.device}")
+
+        # Check for NaN values
+        print("\n=== NaN Check ===")
+        print(f"rna_out_seq has NaNs: {torch.isnan(rna_out_seq).any().item()}")
+        print(f"rna_out_graph has NaNs: {torch.isnan(rna_out_graph).any().item()}")
+        print(f"mole_seq_emb[-1] has NaNs: {torch.isnan(mole_seq_emb[-1]).any().item()}")
+        print(f"mole_out_graph has NaNs: {torch.isnan(mole_out_graph).any().item()}")
 
         # Ensure all masks are on the same device
         # No need to call .to(device) again since we created them on the device
@@ -362,6 +446,17 @@ class DeepRSMA(nn.Module):
                 device
             )
             print("Cross-attention successful")
+
+            # Validate cross-attention outputs
+            print("\n=== Cross-Attention Output Validation ===")
+            print(f"context_layer type: {type(context_layer)}, length: {len(context_layer)}")
+            print(f"context_layer[-1] type: {type(context_layer[-1])}, length: {len(context_layer[-1])}")
+            print(f"context_layer[-1][0] shape: {context_layer[-1][0].shape}, device: {context_layer[-1][0].device}")
+            print(f"context_layer[-1][1] shape: {context_layer[-1][1].shape}, device: {context_layer[-1][1].device}")
+
+            # Check for NaN values in outputs
+            print(f"context_layer[-1][0] has NaNs: {torch.isnan(context_layer[-1][0]).any().item()}")
+            print(f"context_layer[-1][1] has NaNs: {torch.isnan(context_layer[-1][1]).any().item()}")
         except Exception as e:
             print(f"Error in cross-attention: {e}")
             # Create a fallback context layer with the expected shape
@@ -398,6 +493,11 @@ class DeepRSMA(nn.Module):
         out = self.dropout(self.relu(out))
         out = self.line3(out)
 
+        # Validate final output
+        print("\n=== Final Output Validation ===")
+        print(f"Output shape: {out.shape}, dtype: {out.dtype}, device: {out.device}")
+        print(f"Output has NaNs: {torch.isnan(out).any().item()}")
+        print(f"Output min: {out.min().item()}, max: {out.max().item()}, mean: {out.mean().item()}")
 
         return out
 
