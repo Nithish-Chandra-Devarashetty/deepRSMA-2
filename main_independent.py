@@ -96,9 +96,52 @@ class DeepRSMA(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, rna_batch, mole_batch):
-        rna_out_seq,rna_out_graph, rna_mask_seq, rna_mask_graph, rna_seq_final, rna_graph_final = self.rna_graph_model(rna_batch, device)
+        # Process RNA data
+        # Extract features from RNA batch
+        x = rna_batch.x.to(device)
+        edge_index = rna_batch.edge_index.to(device)
 
-        mole_graph_emb, mole_graph_final = self.mole_graph_model(mole_batch)
+        # Create edge attributes (assuming they're not provided in the batch)
+        edge_attr = torch.ones(edge_index.size(1), 1).to(device)
+
+        # Create batch index for the graph pooling
+        batch_idx = torch.zeros(x.size(0), dtype=torch.long).to(device)
+
+        # Get graph embeddings using the RNA feature extraction model
+        rna_graph_final = self.rna_graph_model(x, edge_index, edge_attr, batch_idx)
+
+        # Get RNA sequence embedding
+        rna_emb = rna_batch.emb.to(device)
+        rna_len = rna_batch.rna_len
+
+        # Create sequence and graph masks
+        rna_mask_seq = torch.ones(1, 512)
+        rna_mask_seq[0, rna_len:] = 0
+
+        rna_mask_graph = torch.ones(1, 128)
+        rna_mask_graph[0, rna_len:] = 0
+
+        # Create output tensors
+        rna_out_seq = torch.zeros(1, 512, hidden_dim).to(device)
+        rna_out_graph = torch.zeros(1, 128, hidden_dim).to(device)
+
+        # Set the sequence final embedding
+        rna_seq_final = rna_emb
+
+        # Process molecule data
+        # Extract features from molecule batch
+        mole_x = mole_batch.x.to(device)
+        mole_edge_index = mole_batch.edge_index.to(device)
+        mole_edge_attr = mole_batch.edge_attr.float().to(device)
+
+        # Create batch index for the graph pooling
+        mole_batch_idx = torch.zeros(mole_x.size(0), dtype=torch.long).to(device)
+
+        # Get graph embeddings using the molecule feature extraction model
+        mole_graph_final = self.mole_graph_model(mole_x, mole_edge_index, mole_edge_attr, mole_batch_idx)
+
+        # For consistency with the original implementation
+        mole_graph_emb = mole_x
 
         mole_seq_emb, _, mole_mask_seq = self.mole_seq_model(mole_batch, device)
 
