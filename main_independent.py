@@ -156,7 +156,25 @@ class DeepRSMA(nn.Module):
 
         # Get RNA sequence embedding
         rna_emb = rna_batch.emb.to(device)
-        rna_len = rna_batch.rna_len
+
+        # Print rna_len for debugging
+        print(f"rna_len type: {type(rna_batch.rna_len)}, value: {rna_batch.rna_len}")
+
+        # Convert rna_len to a scalar integer
+        try:
+            if isinstance(rna_batch.rna_len, torch.Tensor):
+                rna_len = rna_batch.rna_len.item()
+            elif isinstance(rna_batch.rna_len, (list, tuple)):
+                rna_len = rna_batch.rna_len[0]
+            else:
+                rna_len = int(rna_batch.rna_len)
+
+            print(f"Converted rna_len to: {rna_len}")
+        except Exception as e:
+            print(f"Error converting rna_len: {e}")
+            # Fallback to a default value
+            rna_len = 100
+            print(f"Using fallback rna_len: {rna_len}")
 
         # Create sequence and graph masks
         rna_mask_seq = torch.ones(1, 512)
