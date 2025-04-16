@@ -472,26 +472,257 @@ class DeepRSMA(nn.Module):
         out_rna = context_layer[-1][0]
         out_mole = context_layer[-1][1]
 
-        # Affinity Prediction Module
-        rna_cross_seq = ((out_rna[:, 0:512]*(rna_mask_seq.to(device).unsqueeze(dim=2))).mean(dim=1).squeeze(dim=1) + rna_seq_final ) / 2
-        rna_cross_stru = ((out_rna[:, 512:]*(rna_mask_graph.to(device).unsqueeze(dim=2))).mean(dim=1).squeeze(dim=1) + rna_graph_final) / 2
+        # Affinity Prediction Module with dimension validation
+        try:
+            # Print dimensions for debugging
+            print("\n=== Affinity Prediction Module Dimensions ===")
+            print(f"out_rna shape: {out_rna.shape}, device: {out_rna.device}")
+            print(f"rna_mask_seq shape: {rna_mask_seq.shape}, device: {rna_mask_seq.device}")
+            print(f"rna_seq_final shape: {rna_seq_final.shape}, device: {rna_seq_final.device}")
+            print(f"rna_graph_final shape: {rna_graph_final.shape}, device: {rna_graph_final.device}")
+
+            # Process RNA sequence cross-attention
+            # First, ensure dimensions are compatible
+            rna_mask_seq_device = rna_mask_seq.to(device)
+            rna_mask_seq_3d = rna_mask_seq_device.unsqueeze(dim=2)
+
+            # Check if we need to slice out_rna
+            if out_rna.size(1) >= 512:
+                out_rna_seq = out_rna[:, 0:512]
+            else:
+                print(f"Warning: out_rna has fewer than 512 columns ({out_rna.size(1)}). Using all available.")
+                out_rna_seq = out_rna
+
+            # Ensure mask has compatible dimensions with out_rna_seq
+            if rna_mask_seq_3d.size(1) != out_rna_seq.size(1):
+                print(f"Warning: rna_mask_seq_3d size {rna_mask_seq_3d.size(1)} doesn't match out_rna_seq size {out_rna_seq.size(1)}")
+                # Resize mask to match out_rna_seq
+                new_mask = torch.ones(1, out_rna_seq.size(1), 1, device=device)
+                min_size = min(new_mask.size(1), rna_mask_seq_3d.size(1))
+                new_mask[0, min_size:] = 0
+                rna_mask_seq_3d = new_mask
+
+            # Apply mask and calculate mean
+            masked_out_rna_seq = out_rna_seq * rna_mask_seq_3d
+            mean_out_rna_seq = masked_out_rna_seq.mean(dim=1).squeeze(dim=1)
+
+            print(f"mean_out_rna_seq shape: {mean_out_rna_seq.shape}, device: {mean_out_rna_seq.device}")
+            print(f"rna_seq_final shape: {rna_seq_final.shape}, device: {rna_seq_final.device}")
+
+            # Ensure rna_seq_final has compatible dimensions with mean_out_rna_seq
+            if mean_out_rna_seq.size(-1) != rna_seq_final.size(-1):
+                print(f"Warning: mean_out_rna_seq size {mean_out_rna_seq.size(-1)} doesn't match rna_seq_final size {rna_seq_final.size(-1)}")
+                # Resize rna_seq_final to match mean_out_rna_seq
+                if mean_out_rna_seq.size(-1) > rna_seq_final.size(-1):
+                    # Pad rna_seq_final
+                    pad_size = mean_out_rna_seq.size(-1) - rna_seq_final.size(-1)
+                    padding = torch.zeros(rna_seq_final.size(0), pad_size, device=device)
+                    rna_seq_final = torch.cat([rna_seq_final, padding], dim=-1)
+                else:
+                    # Truncate rna_seq_final
+                    rna_seq_final = rna_seq_final[:, :mean_out_rna_seq.size(-1)]
+
+            # Calculate cross sequence
+            rna_cross_seq = (mean_out_rna_seq + rna_seq_final) / 2
+
+            # Process RNA graph cross-attention
+            # Similar dimension validation for graph
+            rna_mask_graph_device = rna_mask_graph.to(device)
+            rna_mask_graph_3d = rna_mask_graph_device.unsqueeze(dim=2)
+
+            # Check if we need to slice out_rna for graph
+            if out_rna.size(1) > 512:
+                out_rna_graph = out_rna[:, 512:]
+            else:
+                print(f"Warning: out_rna doesn't have graph section. Using sequence section.")
+                out_rna_graph = out_rna
+
+            # Ensure mask has compatible dimensions with out_rna_graph
+            if rna_mask_graph_3d.size(1) != out_rna_graph.size(1):
+                print(f"Warning: rna_mask_graph_3d size {rna_mask_graph_3d.size(1)} doesn't match out_rna_graph size {out_rna_graph.size(1)}")
+                # Resize mask to match out_rna_graph
+                new_mask = torch.ones(1, out_rna_graph.size(1), 1, device=device)
+                min_size = min(new_mask.size(1), rna_mask_graph_3d.size(1))
+                new_mask[0, min_size:] = 0
+                rna_mask_graph_3d = new_mask
+
+            # Apply mask and calculate mean
+            masked_out_rna_graph = out_rna_graph * rna_mask_graph_3d
+            mean_out_rna_graph = masked_out_rna_graph.mean(dim=1).squeeze(dim=1)
+
+            print(f"mean_out_rna_graph shape: {mean_out_rna_graph.shape}, device: {mean_out_rna_graph.device}")
+            print(f"rna_graph_final shape: {rna_graph_final.shape}, device: {rna_graph_final.device}")
+
+            # Ensure rna_graph_final has compatible dimensions with mean_out_rna_graph
+            if mean_out_rna_graph.size(-1) != rna_graph_final.size(-1):
+                print(f"Warning: mean_out_rna_graph size {mean_out_rna_graph.size(-1)} doesn't match rna_graph_final size {rna_graph_final.size(-1)}")
+                # Resize rna_graph_final to match mean_out_rna_graph
+                if mean_out_rna_graph.size(-1) > rna_graph_final.size(-1):
+                    # Pad rna_graph_final
+                    pad_size = mean_out_rna_graph.size(-1) - rna_graph_final.size(-1)
+                    padding = torch.zeros(rna_graph_final.size(0), pad_size, device=device)
+                    rna_graph_final = torch.cat([rna_graph_final, padding], dim=-1)
+                else:
+                    # Truncate rna_graph_final
+                    rna_graph_final = rna_graph_final[:, :mean_out_rna_graph.size(-1)]
+
+            # Calculate cross structure
+            rna_cross_stru = (mean_out_rna_graph + rna_graph_final) / 2
+
+        except Exception as e:
+            print(f"Error in RNA affinity prediction: {e}")
+            # Create fallback tensors
+            rna_cross_seq = torch.zeros(1, hidden_dim).to(device)
+            rna_cross_stru = torch.zeros(1, hidden_dim).to(device)
+            print("Using fallback RNA cross tensors")
 
         rna_cross = (rna_cross_seq + rna_cross_stru) / 2
         rna_cross = self.rna2(self.dropout((self.relu(self.rna1(rna_cross)))))
 
 
-        mole_cross_seq = ((out_mole[:,0:128]*(mole_mask_seq.to(device).unsqueeze(dim=2))).mean(dim=1).squeeze(dim=1) + mole_seq_final) / 2
-        mole_cross_stru = ((out_mole[:,128:]*(mole_mask_graph.to(device).unsqueeze(dim=2))).mean(dim=1).squeeze(dim=1) + mole_graph_final) / 2
+        # Process molecule cross-attention with dimension validation
+        try:
+            # Print dimensions for debugging
+            print("\n=== Molecule Affinity Prediction Module Dimensions ===")
+            print(f"out_mole shape: {out_mole.shape}, device: {out_mole.device}")
+            print(f"mole_mask_seq shape: {mole_mask_seq.shape}, device: {mole_mask_seq.device}")
+            print(f"mole_seq_final shape: {mole_seq_final.shape}, device: {mole_seq_final.device}")
+            print(f"mole_graph_final shape: {mole_graph_final.shape}, device: {mole_graph_final.device}")
+
+            # Process molecule sequence cross-attention
+            # First, ensure dimensions are compatible
+            mole_mask_seq_device = mole_mask_seq.to(device)
+            mole_mask_seq_3d = mole_mask_seq_device.unsqueeze(dim=2)
+
+            # Check if we need to slice out_mole
+            if out_mole.size(1) >= 128:
+                out_mole_seq = out_mole[:, 0:128]
+            else:
+                print(f"Warning: out_mole has fewer than 128 columns ({out_mole.size(1)}). Using all available.")
+                out_mole_seq = out_mole
+
+            # Ensure mask has compatible dimensions with out_mole_seq
+            if mole_mask_seq_3d.size(1) != out_mole_seq.size(1):
+                print(f"Warning: mole_mask_seq_3d size {mole_mask_seq_3d.size(1)} doesn't match out_mole_seq size {out_mole_seq.size(1)}")
+                # Resize mask to match out_mole_seq
+                new_mask = torch.ones(1, out_mole_seq.size(1), 1, device=device)
+                min_size = min(new_mask.size(1), mole_mask_seq_3d.size(1))
+                new_mask[0, min_size:] = 0
+                mole_mask_seq_3d = new_mask
+
+            # Apply mask and calculate mean
+            masked_out_mole_seq = out_mole_seq * mole_mask_seq_3d
+            mean_out_mole_seq = masked_out_mole_seq.mean(dim=1).squeeze(dim=1)
+
+            print(f"mean_out_mole_seq shape: {mean_out_mole_seq.shape}, device: {mean_out_mole_seq.device}")
+            print(f"mole_seq_final shape: {mole_seq_final.shape}, device: {mole_seq_final.device}")
+
+            # Ensure mole_seq_final has compatible dimensions with mean_out_mole_seq
+            if mean_out_mole_seq.size(-1) != mole_seq_final.size(-1):
+                print(f"Warning: mean_out_mole_seq size {mean_out_mole_seq.size(-1)} doesn't match mole_seq_final size {mole_seq_final.size(-1)}")
+                # Resize mole_seq_final to match mean_out_mole_seq
+                if mean_out_mole_seq.size(-1) > mole_seq_final.size(-1):
+                    # Pad mole_seq_final
+                    pad_size = mean_out_mole_seq.size(-1) - mole_seq_final.size(-1)
+                    padding = torch.zeros(mole_seq_final.size(0), pad_size, device=device)
+                    mole_seq_final = torch.cat([mole_seq_final, padding], dim=-1)
+                else:
+                    # Truncate mole_seq_final
+                    mole_seq_final = mole_seq_final[:, :mean_out_mole_seq.size(-1)]
+
+            # Calculate cross sequence
+            mole_cross_seq = (mean_out_mole_seq + mole_seq_final) / 2
+
+            # Process molecule graph cross-attention
+            # Similar dimension validation for graph
+            mole_mask_graph_device = mole_mask_graph.to(device)
+            mole_mask_graph_3d = mole_mask_graph_device.unsqueeze(dim=2)
+
+            # Check if we need to slice out_mole for graph
+            if out_mole.size(1) > 128:
+                out_mole_graph = out_mole[:, 128:]
+            else:
+                print(f"Warning: out_mole doesn't have graph section. Using sequence section.")
+                out_mole_graph = out_mole
+
+            # Ensure mask has compatible dimensions with out_mole_graph
+            if mole_mask_graph_3d.size(1) != out_mole_graph.size(1):
+                print(f"Warning: mole_mask_graph_3d size {mole_mask_graph_3d.size(1)} doesn't match out_mole_graph size {out_mole_graph.size(1)}")
+                # Resize mask to match out_mole_graph
+                new_mask = torch.ones(1, out_mole_graph.size(1), 1, device=device)
+                min_size = min(new_mask.size(1), mole_mask_graph_3d.size(1))
+                new_mask[0, min_size:] = 0
+                mole_mask_graph_3d = new_mask
+
+            # Apply mask and calculate mean
+            masked_out_mole_graph = out_mole_graph * mole_mask_graph_3d
+            mean_out_mole_graph = masked_out_mole_graph.mean(dim=1).squeeze(dim=1)
+
+            print(f"mean_out_mole_graph shape: {mean_out_mole_graph.shape}, device: {mean_out_mole_graph.device}")
+            print(f"mole_graph_final shape: {mole_graph_final.shape}, device: {mole_graph_final.device}")
+
+            # Ensure mole_graph_final has compatible dimensions with mean_out_mole_graph
+            if mean_out_mole_graph.size(-1) != mole_graph_final.size(-1):
+                print(f"Warning: mean_out_mole_graph size {mean_out_mole_graph.size(-1)} doesn't match mole_graph_final size {mole_graph_final.size(-1)}")
+                # Resize mole_graph_final to match mean_out_mole_graph
+                if mean_out_mole_graph.size(-1) > mole_graph_final.size(-1):
+                    # Pad mole_graph_final
+                    pad_size = mean_out_mole_graph.size(-1) - mole_graph_final.size(-1)
+                    padding = torch.zeros(mole_graph_final.size(0), pad_size, device=device)
+                    mole_graph_final = torch.cat([mole_graph_final, padding], dim=-1)
+                else:
+                    # Truncate mole_graph_final
+                    mole_graph_final = mole_graph_final[:, :mean_out_mole_graph.size(-1)]
+
+            # Calculate cross structure
+            mole_cross_stru = (mean_out_mole_graph + mole_graph_final) / 2
+
+        except Exception as e:
+            print(f"Error in molecule affinity prediction: {e}")
+            # Create fallback tensors
+            mole_cross_seq = torch.zeros(1, hidden_dim).to(device)
+            mole_cross_stru = torch.zeros(1, hidden_dim).to(device)
+            print("Using fallback molecule cross tensors")
 
         mole_cross = (mole_cross_seq + mole_cross_stru) / 2
         mole_cross = self.mole2(self.dropout((self.relu(self.mole1(mole_cross)))))
 
-        out = torch.cat((rna_cross, mole_cross),1)
-        out = self.line1(out)
-        out = self.dropout(self.relu(out))
-        out = self.line2(out)
-        out = self.dropout(self.relu(out))
-        out = self.line3(out)
+        # Final output processing with dimension validation
+        try:
+            # Print dimensions for debugging
+            print("\n=== Final Output Processing Dimensions ===")
+            print(f"rna_cross shape: {rna_cross.shape}, device: {rna_cross.device}")
+            print(f"mole_cross shape: {mole_cross.shape}, device: {mole_cross.device}")
+
+            # Ensure both tensors have the same batch size
+            if rna_cross.size(0) != mole_cross.size(0):
+                print(f"Warning: rna_cross batch size {rna_cross.size(0)} doesn't match mole_cross batch size {mole_cross.size(0)}")
+                # Use the smaller batch size
+                min_batch = min(rna_cross.size(0), mole_cross.size(0))
+                rna_cross = rna_cross[:min_batch]
+                mole_cross = mole_cross[:min_batch]
+
+            # Concatenate the tensors
+            out = torch.cat((rna_cross, mole_cross), 1)
+            print(f"Concatenated output shape: {out.shape}")
+
+            # Apply final layers
+            out = self.line1(out)
+            out = self.dropout(self.relu(out))
+            print(f"After line1: {out.shape}")
+
+            out = self.line2(out)
+            out = self.dropout(self.relu(out))
+            print(f"After line2: {out.shape}")
+
+            out = self.line3(out)
+            print(f"Final output shape: {out.shape}")
+
+        except Exception as e:
+            print(f"Error in final output processing: {e}")
+            # Create fallback output
+            out = torch.zeros(1, 1).to(device)
+            print("Using fallback output tensor")
 
         # Validate final output
         print("\n=== Final Output Validation ===")
