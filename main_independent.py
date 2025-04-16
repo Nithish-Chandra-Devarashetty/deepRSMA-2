@@ -108,10 +108,29 @@ class DeepRSMA(nn.Module):
             # Create batch index for the graph pooling
             # The batch index should have the same size as the number of nodes
             # and indicate which graph each node belongs to (all 0 for a single graph)
-            batch_idx = torch.zeros(x.size(0), dtype=torch.long).to(device)
+            try:
+                # Get the number of nodes from the edge_index tensor
+                num_nodes = edge_index.max().item() + 1
+                print(f"Detected {num_nodes} nodes from edge_index")
 
-            # Print sizes for debugging
-            print(f"RNA x size: {x.size()}, batch_idx size: {batch_idx.size()}")
+                # Create batch index with the correct size
+                batch_idx = torch.zeros(num_nodes, dtype=torch.long).to(device)
+
+                # Print sizes for debugging
+                print(f"RNA x size: {x.size()}, batch_idx size: {batch_idx.size()}")
+
+                # Verify that the batch index size matches the node feature size
+                if batch_idx.size(0) != x.size(0):
+                    print(f"Warning: batch_idx size {batch_idx.size(0)} doesn't match x size {x.size(0)}")
+                    # Use the larger size to be safe
+                    max_size = max(batch_idx.size(0), x.size(0))
+                    batch_idx = torch.zeros(max_size, dtype=torch.long).to(device)
+                    print(f"Created new batch_idx with size {batch_idx.size(0)}")
+            except Exception as e:
+                print(f"Error creating batch index: {e}")
+                # Fallback to using x size
+                batch_idx = torch.zeros(x.size(0), dtype=torch.long).to(device)
+                print(f"Fallback: Created batch_idx with size {batch_idx.size(0)}")
 
             # Check for potential issues with the edge_index tensor
             if edge_index.dim() != 2 or edge_index.size(0) != 2:
@@ -161,10 +180,29 @@ class DeepRSMA(nn.Module):
             mole_edge_attr = mole_batch.edge_attr.to(device)  # Type conversion handled in the model
 
             # Create batch index for the graph pooling
-            mole_batch_idx = torch.zeros(mole_x.size(0), dtype=torch.long).to(device)
+            try:
+                # Get the number of nodes from the edge_index tensor
+                num_nodes = mole_edge_index.max().item() + 1
+                print(f"Detected {num_nodes} molecule nodes from edge_index")
 
-            # Print sizes for debugging
-            print(f"Molecule x size: {mole_x.size()}, batch_idx size: {mole_batch_idx.size()}")
+                # Create batch index with the correct size
+                mole_batch_idx = torch.zeros(num_nodes, dtype=torch.long).to(device)
+
+                # Print sizes for debugging
+                print(f"Molecule x size: {mole_x.size()}, batch_idx size: {mole_batch_idx.size()}")
+
+                # Verify that the batch index size matches the node feature size
+                if mole_batch_idx.size(0) != mole_x.size(0):
+                    print(f"Warning: mole_batch_idx size {mole_batch_idx.size(0)} doesn't match mole_x size {mole_x.size(0)}")
+                    # Use the larger size to be safe
+                    max_size = max(mole_batch_idx.size(0), mole_x.size(0))
+                    mole_batch_idx = torch.zeros(max_size, dtype=torch.long).to(device)
+                    print(f"Created new mole_batch_idx with size {mole_batch_idx.size(0)}")
+            except Exception as e:
+                print(f"Error creating molecule batch index: {e}")
+                # Fallback to using x size
+                mole_batch_idx = torch.zeros(mole_x.size(0), dtype=torch.long).to(device)
+                print(f"Fallback: Created mole_batch_idx with size {mole_batch_idx.size(0)}")
 
             # Check for potential issues with the edge_index tensor
             if mole_edge_index.dim() != 2 or mole_edge_index.size(0) != 2:

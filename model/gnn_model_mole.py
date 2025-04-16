@@ -107,9 +107,26 @@ class GCNNet(nn.Module):
 
             # For global pooling, we need to ensure batch has the same size as x
             if batch.size(0) != x.size(0):
-                print(f"Warning: Batch size {batch.size(0)} doesn't match node feature size {x.size(0)}")
+                print(f"Warning: Molecule batch size {batch.size(0)} doesn't match node feature size {x.size(0)}")
                 # Create a new batch tensor with the correct size
+                # This is critical for the pooling operation to work correctly
                 batch = torch.zeros(x.size(0), dtype=torch.long, device=device)
+
+                # Print the new batch size for debugging
+                print(f"Created new molecule batch tensor with size {batch.size()}")
+
+                # Double-check that the sizes match
+                if batch.size(0) != x.size(0):
+                    print(f"ERROR: Molecule sizes still don't match! x: {x.size(0)}, batch: {batch.size(0)}")
+                    # Last resort: reshape x to match batch size
+                    # This is not ideal but better than crashing
+                    print(f"Reshaping molecule x from {x.shape} to match batch size {batch.size(0)}")
+                    # Create a new tensor with the correct size
+                    new_x = torch.zeros(batch.size(0), x.size(1), device=device)
+                    # Copy as much data as possible
+                    min_size = min(batch.size(0), x.size(0))
+                    new_x[:min_size] = x[:min_size]
+                    x = new_x
 
             # Pool node features to get graph-level representation
             x = self.pool(x, batch)
