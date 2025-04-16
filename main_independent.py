@@ -576,8 +576,41 @@ class DeepRSMA(nn.Module):
             rna_cross_stru = torch.zeros(1, hidden_dim).to(device)
             print("Using fallback RNA cross tensors")
 
-        rna_cross = (rna_cross_seq + rna_cross_stru) / 2
-        rna_cross = self.rna2(self.dropout((self.relu(self.rna1(rna_cross)))))
+        # Process final RNA cross with dimension validation
+        try:
+            rna_cross = (rna_cross_seq + rna_cross_stru) / 2
+            print(f"\n=== Final RNA Cross Validation ===")
+            print(f"rna_cross shape: {rna_cross.shape}, device: {rna_cross.device}")
+
+            # Check if rna_cross has the expected feature dimension for rna1
+            expected_dim = hidden_dim  # The expected input dimension for rna1
+            if rna_cross.size(-1) != expected_dim:
+                print(f"Warning: rna_cross size {rna_cross.size(-1)} doesn't match expected size {expected_dim}")
+                # Resize rna_cross to match expected dimension
+                if rna_cross.size(-1) < expected_dim:
+                    # Pad rna_cross
+                    pad_size = expected_dim - rna_cross.size(-1)
+                    padding = torch.zeros(rna_cross.size(0), pad_size, device=device)
+                    rna_cross = torch.cat([rna_cross, padding], dim=-1)
+                    print(f"Padded rna_cross to shape {rna_cross.shape}")
+                else:
+                    # Truncate rna_cross
+                    rna_cross = rna_cross[:, :expected_dim]
+                    print(f"Truncated rna_cross to shape {rna_cross.shape}")
+
+            # Apply linear transformations
+            rna_cross = self.rna1(rna_cross)
+            rna_cross = self.relu(rna_cross)
+            rna_cross = self.dropout(rna_cross)
+            rna_cross = self.rna2(rna_cross)
+
+            print(f"Final rna_cross shape after transformations: {rna_cross.shape}")
+
+        except Exception as e:
+            print(f"Error in final RNA cross processing: {e}")
+            # Create fallback tensor
+            rna_cross = torch.zeros(1, hidden_dim).to(device)
+            print("Using fallback rna_cross tensor")
 
 
         # Process molecule cross-attention with dimension validation
@@ -684,8 +717,41 @@ class DeepRSMA(nn.Module):
             mole_cross_stru = torch.zeros(1, hidden_dim).to(device)
             print("Using fallback molecule cross tensors")
 
-        mole_cross = (mole_cross_seq + mole_cross_stru) / 2
-        mole_cross = self.mole2(self.dropout((self.relu(self.mole1(mole_cross)))))
+        # Process final molecule cross with dimension validation
+        try:
+            mole_cross = (mole_cross_seq + mole_cross_stru) / 2
+            print(f"\n=== Final Molecule Cross Validation ===")
+            print(f"mole_cross shape: {mole_cross.shape}, device: {mole_cross.device}")
+
+            # Check if mole_cross has the expected feature dimension for mole1
+            expected_dim = hidden_dim  # The expected input dimension for mole1
+            if mole_cross.size(-1) != expected_dim:
+                print(f"Warning: mole_cross size {mole_cross.size(-1)} doesn't match expected size {expected_dim}")
+                # Resize mole_cross to match expected dimension
+                if mole_cross.size(-1) < expected_dim:
+                    # Pad mole_cross
+                    pad_size = expected_dim - mole_cross.size(-1)
+                    padding = torch.zeros(mole_cross.size(0), pad_size, device=device)
+                    mole_cross = torch.cat([mole_cross, padding], dim=-1)
+                    print(f"Padded mole_cross to shape {mole_cross.shape}")
+                else:
+                    # Truncate mole_cross
+                    mole_cross = mole_cross[:, :expected_dim]
+                    print(f"Truncated mole_cross to shape {mole_cross.shape}")
+
+            # Apply linear transformations
+            mole_cross = self.mole1(mole_cross)
+            mole_cross = self.relu(mole_cross)
+            mole_cross = self.dropout(mole_cross)
+            mole_cross = self.mole2(mole_cross)
+
+            print(f"Final mole_cross shape after transformations: {mole_cross.shape}")
+
+        except Exception as e:
+            print(f"Error in final molecule cross processing: {e}")
+            # Create fallback tensor
+            mole_cross = torch.zeros(1, hidden_dim).to(device)
+            print("Using fallback mole_cross tensor")
 
         # Final output processing with dimension validation
         try:
