@@ -863,53 +863,77 @@ for epoch in range(0,EPOCH):
             print(f"Error in training step: {e}")
             continue
         train_loss = train_loss + loss
+    # Evaluation loop with robust error handling
+    print("\n=== Starting Evaluation ===")
     with torch.set_grad_enabled(False):
         model.eval()
         y_label = []
         y_pred = []
-        for step, (batch_v) in enumerate(test_loader):
+
+        # Print test loader information
+        print(f"Test loader length: {len(test_loader)}")
+
+        # Limit the number of test batches for debugging
+        max_test_batches = 5  # Small number for debugging
+        print(f"Limiting evaluation to {max_test_batches} test batches for debugging")
+
+        # Process each test batch with comprehensive error handling
+        for step, batch_v in enumerate(test_loader):
+            print(f"\nProcessing test batch {step}")
+
+            # Break after max_test_batches for debugging
+            if step >= max_test_batches:
+                print(f"Reached maximum number of test batches ({max_test_batches}). Breaking loop.")
+                break
+
             try:
                 # Convert label to tensor
                 label = Variable(torch.from_numpy(np.array(batch_v[0].y))).float()
+                print(f"Label shape: {label.shape}")
 
                 # Forward pass with error handling
                 try:
+                    print("Running model forward pass...")
                     score = model(batch_v[0].to(device), batch_v[1].to(device))
+                    print(f"Score shape: {score.shape}")
 
                     # Check for NaN values in the prediction
                     if torch.isnan(score).any():
-                        print(f"Warning: NaN values detected in prediction for test batch {step}. Skipping.")
+                        print(f"Warning: NaN values detected in prediction. Skipping this batch.")
                         continue
 
                 except Exception as e:
-                    print(f"Error in model forward pass for test batch {step}: {e}")
+                    print(f"Error in model forward pass: {e}")
                     continue
 
                 # Process predictions
                 try:
+                    print("Processing predictions...")
                     logits = torch.squeeze(score).detach().cpu().numpy()
                     label_ids = label.to('cpu').numpy()
 
+                    print(f"Logits shape: {logits.shape}, Label IDs shape: {label_ids.shape}")
+
                     # Check for NaN values
                     if np.isnan(logits).any() or np.isnan(label_ids).any():
-                        print(f"Warning: NaN values detected in processed outputs for test batch {step}. Skipping.")
+                        print(f"Warning: NaN values detected in processed outputs. Skipping this batch.")
                         continue
 
                     # Add to results
-                    y_label = y_label + label_ids.flatten().tolist()
-                    y_pred = y_pred + logits.flatten().tolist()
+                    y_label.extend(label_ids.flatten().tolist())
+                    y_pred.extend(logits.flatten().tolist())
 
-                    # Print progress
-                    if step % 10 == 0:
-                        print(f"Evaluated {step} test batches")
+                    print(f"Current results: {len(y_label)} labels, {len(y_pred)} predictions")
 
                 except Exception as e:
-                    print(f"Error processing outputs for test batch {step}: {e}")
+                    print(f"Error processing outputs: {e}")
                     continue
 
             except Exception as e:
                 print(f"Error in evaluation loop for batch {step}: {e}")
                 continue
+
+        print(f"\nEvaluation complete. Collected {len(y_label)} labels and {len(y_pred)} predictions.")
 
         # Calculate metrics with error handling
         try:
