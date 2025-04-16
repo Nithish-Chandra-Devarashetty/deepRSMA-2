@@ -6,11 +6,14 @@ from torch_geometric.nn import GINEConv, global_mean_pool
 class GCNNet(nn.Module):  # Renamed back to original class name
     def __init__(self, in_channels, hidden_channels):
         super(GCNNet, self).__init__()
-        nn1 = nn.Sequential(nn.Linear(in_channels, hidden_channels),
+        # Create a linear layer to project node features to hidden_channels
+        self.node_encoder = nn.Linear(9, hidden_channels)  # Molecule atom features are 9-dimensional
+
+        nn1 = nn.Sequential(nn.Linear(hidden_channels, hidden_channels),
                             nn.ReLU(),
                             nn.Linear(hidden_channels, hidden_channels))
         # Create a linear layer to project edge features to the same dimension as node features
-        self.edge_encoder = nn.Linear(3, hidden_channels)
+        self.edge_encoder = nn.Linear(3, hidden_channels)  # Bond features are 3-dimensional
         self.conv1 = GINEConv(nn1, edge_dim=hidden_channels)  # Set edge_dim to match hidden_channels
 
         nn2 = nn.Sequential(nn.Linear(hidden_channels, hidden_channels),
@@ -21,8 +24,11 @@ class GCNNet(nn.Module):  # Renamed back to original class name
         self.pool = global_mean_pool
 
     def forward(self, x, edge_index, edge_attr, batch):
+        # Encode node features to hidden_channels dimension
+        x = self.node_encoder(x.float())
+
         # Encode edge features to match node feature dimension
-        edge_attr = self.edge_encoder(edge_attr)
+        edge_attr = self.edge_encoder(edge_attr.float())
 
         # Apply GINEConv layers
         x = self.conv1(x, edge_index, edge_attr)
