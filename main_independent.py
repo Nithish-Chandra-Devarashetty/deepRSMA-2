@@ -106,7 +106,22 @@ class DeepRSMA(nn.Module):
             edge_attr = torch.ones(edge_index.size(1), 1).to(device)
 
             # Create batch index for the graph pooling
+            # The batch index should have the same size as the number of nodes
+            # and indicate which graph each node belongs to (all 0 for a single graph)
             batch_idx = torch.zeros(x.size(0), dtype=torch.long).to(device)
+
+            # Print sizes for debugging
+            print(f"RNA x size: {x.size()}, batch_idx size: {batch_idx.size()}")
+
+            # Check for potential issues with the edge_index tensor
+            if edge_index.dim() != 2 or edge_index.size(0) != 2:
+                print(f"Warning: edge_index has unexpected shape: {edge_index.shape}")
+                # Try to fix the edge_index tensor
+                if edge_index.dim() == 1:
+                    # Reshape to [2, num_edges]
+                    num_edges = edge_index.size(0) // 2
+                    edge_index = edge_index.view(2, num_edges)
+                    print(f"Reshaped edge_index to {edge_index.shape}")
 
             # Optional debugging
             # print(f"RNA node features: shape={x.shape}, dtype={x.dtype}")
@@ -148,6 +163,26 @@ class DeepRSMA(nn.Module):
             # Create batch index for the graph pooling
             mole_batch_idx = torch.zeros(mole_x.size(0), dtype=torch.long).to(device)
 
+            # Print sizes for debugging
+            print(f"Molecule x size: {mole_x.size()}, batch_idx size: {mole_batch_idx.size()}")
+
+            # Check for potential issues with the edge_index tensor
+            if mole_edge_index.dim() != 2 or mole_edge_index.size(0) != 2:
+                print(f"Warning: mole_edge_index has unexpected shape: {mole_edge_index.shape}")
+                # Try to fix the edge_index tensor
+                if mole_edge_index.dim() == 1:
+                    # Reshape to [2, num_edges]
+                    num_edges = mole_edge_index.size(0) // 2
+                    mole_edge_index = mole_edge_index.view(2, num_edges)
+                    print(f"Reshaped mole_edge_index to {mole_edge_index.shape}")
+
+            # Check for potential issues with the edge_attr tensor
+            if mole_edge_attr.dim() == 1:
+                print(f"Warning: mole_edge_attr has unexpected shape: {mole_edge_attr.shape}")
+                # Reshape to [num_edges, 3]
+                mole_edge_attr = mole_edge_attr.view(-1, 3)
+                print(f"Reshaped mole_edge_attr to {mole_edge_attr.shape}")
+
             # Optional debugging
             # print(f"Molecule node features: shape={mole_x.shape}, dtype={mole_x.dtype}")
             # print(f"Molecule edge_index: shape={mole_edge_index.shape}, dtype={mole_edge_index.dtype}")
@@ -183,7 +218,8 @@ class DeepRSMA(nn.Module):
         mole_out_graph = torch.stack(mole_out_graph).to(device)
         mole_mask_graph = torch.tensor(mask, dtype=torch.float)
 
-        context_layer, attention_score = self.cross_attention([rna_out_seq, rna_out_graph, mole_seq_emb[-1], mole_out_graph], [rna_mask_seq.to(device), rna_mask_graph.to(device), mole_mask_seq.to(device), mole_mask_graph.to(device)], device)
+        # Get cross-attention outputs (ignoring attention scores for now)
+        context_layer, _ = self.cross_attention([rna_out_seq, rna_out_graph, mole_seq_emb[-1], mole_out_graph], [rna_mask_seq.to(device), rna_mask_graph.to(device), mole_mask_seq.to(device), mole_mask_graph.to(device)], device)
 
 
         out_rna = context_layer[-1][0]
