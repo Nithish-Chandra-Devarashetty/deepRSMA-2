@@ -95,6 +95,7 @@ def get_atom_feature_dims():
                 allowable_features["possible_hybridization_list"],
                 allowable_features["possible_is_aromatic_list"],
                 allowable_features["possible_is_in_ring_list"],
+                allowable_features["possible_is_conjugated_list"],
             ],
         )
     )
@@ -110,7 +111,7 @@ def bond_to_feature_vector(bond):
         safe_index(allowable_features["possible_bond_type_list"], str(bond.GetBondType())),
         allowable_features["possible_bond_stereo_list"].index(str(bond.GetStereo())),
         safe_index(allowable_features["possible_bond_direction"], str(bond.GetBondDir())),
-        # allowable_features["possible_is_conjugated_list"].index(bond.GetIsConjugated()),
+        allowable_features["possible_is_conjugated_list"].index(bond.GetIsConjugated()),
     ]
     return bond_feature
 
