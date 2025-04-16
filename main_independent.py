@@ -163,13 +163,32 @@ class DeepRSMA(nn.Module):
         # Convert rna_len to a scalar integer
         try:
             if isinstance(rna_batch.rna_len, torch.Tensor):
-                rna_len = rna_batch.rna_len.item()
+                # Check if it's a multi-element tensor
+                if rna_batch.rna_len.numel() > 1:
+                    print(f"rna_len is a multi-element tensor with {rna_batch.rna_len.numel()} elements")
+                    # Use the maximum length for masking
+                    rna_len = rna_batch.rna_len.max().item()
+                    print(f"Using maximum length: {rna_len}")
+                else:
+                    rna_len = rna_batch.rna_len.item()
             elif isinstance(rna_batch.rna_len, (list, tuple)):
-                rna_len = rna_batch.rna_len[0]
+                print(f"rna_len is a {type(rna_batch.rna_len)} with {len(rna_batch.rna_len)} elements")
+                # Use the maximum length for masking
+                rna_len = max(rna_batch.rna_len)
+                print(f"Using maximum length: {rna_len}")
             else:
                 rna_len = int(rna_batch.rna_len)
 
             print(f"Converted rna_len to: {rna_len}")
+
+            # Ensure rna_len is within valid range
+            if rna_len > 512:
+                print(f"Warning: rna_len {rna_len} exceeds maximum length 512. Capping at 512.")
+                rna_len = 512
+            elif rna_len <= 0:
+                print(f"Warning: Invalid rna_len {rna_len}. Using default value 100.")
+                rna_len = 100
+
         except Exception as e:
             print(f"Error converting rna_len: {e}")
             # Fallback to a default value
@@ -264,20 +283,67 @@ class DeepRSMA(nn.Module):
         mole_seq_final = (mole_seq_emb[-1]*(mole_mask_seq.to(device).unsqueeze(dim=2))).mean(dim=1).squeeze(dim=1)
 
 
-        # mole graph
-        flag = 0
-        mole_out_graph = []
-        mask = []
-        for i in mole_batch.graph_len:
-            count_i = i
-            x = mole_graph_emb[flag:flag+count_i]
-            temp = torch.zeros((128-x.size()[0]), hidden_dim).to(device)
-            x = torch.cat((x, temp),0)
-            mole_out_graph.append(x)
-            mask.append([] + count_i * [1] + (128 - count_i) * [0])
-            flag += count_i
-        mole_out_graph = torch.stack(mole_out_graph).to(device)
-        mole_mask_graph = torch.tensor(mask, dtype=torch.float)
+        # mole graph processing with error handling
+        try:
+            # Print debug information
+            print(f"mole_graph_emb shape: {mole_graph_emb.shape}, dtype: {mole_graph_emb.dtype}")
+            print(f"mole_batch.graph_len: {mole_batch.graph_len}")
+
+            flag = 0
+            mole_out_graph = []
+            mask = []
+
+            for i in mole_batch.graph_len:
+                try:
+                    # Convert i to integer if it's a tensor
+                    if isinstance(i, torch.Tensor):
+                        count_i = i.item()
+                    else:
+                        count_i = int(i)
+
+                    # Get a slice of the molecule graph embeddings
+                    x = mole_graph_emb[flag:flag+count_i]
+
+                    # Print debug information
+                    print(f"x shape: {x.shape}, feature dim: {x.size(-1)}")
+
+                    # Create padding tensor with matching feature dimension
+                    feature_dim = x.size(-1)
+                    temp = torch.zeros((128-x.size()[0]), feature_dim).to(device)
+
+                    # Print debug information
+                    print(f"temp shape: {temp.shape}")
+
+                    # Concatenate along dimension 0
+                    x = torch.cat((x, temp), 0)
+
+                    # Add to output list
+                    mole_out_graph.append(x)
+                    mask.append([] + count_i * [1] + (128 - count_i) * [0])
+                    flag += count_i
+
+                except Exception as e:
+                    print(f"Error processing molecule graph {i}: {e}")
+                    # Create a dummy tensor with the right shape
+                    dummy_x = torch.zeros(128, hidden_dim).to(device)
+                    mole_out_graph.append(dummy_x)
+                    mask.append([0] * 128)  # All masked out
+
+            # Stack the tensors
+            mole_out_graph = torch.stack(mole_out_graph).to(device)
+            mole_mask_graph = torch.tensor(mask, dtype=torch.float).to(device)
+
+            # Print final shapes
+            print(f"Final mole_out_graph shape: {mole_out_graph.shape}")
+            print(f"Final mole_mask_graph shape: {mole_mask_graph.shape}")
+
+        except Exception as e:
+            print(f"Error in molecule graph processing: {e}")
+            # Create fallback tensors
+            batch_size = 1  # Assume batch size 1 as fallback
+            mole_out_graph = torch.zeros(batch_size, 128, hidden_dim).to(device)
+            mole_mask_graph = torch.zeros(batch_size, 128).to(device)
+            print("Using fallback molecule graph tensors")
 
         # Validate shapes before cross-attention
         print(f"Shape validation before cross-attention:")
