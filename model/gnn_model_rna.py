@@ -9,12 +9,12 @@ class RNA_feature_extraction(nn.Module):  # Renamed here
         nn1 = nn.Sequential(nn.Linear(in_channels, hidden_channels),
                             nn.ReLU(),
                             nn.Linear(hidden_channels, hidden_channels))
-        self.conv1 = GINEConv(nn1)
-        
+        self.conv1 = GINEConv(nn1, edge_dim=1)  # Set edge_dim to 1
+
         nn2 = nn.Sequential(nn.Linear(hidden_channels, hidden_channels),
                             nn.ReLU(),
                             nn.Linear(hidden_channels, hidden_channels))
-        self.conv2 = GINEConv(nn2)
+        self.conv2 = GINEConv(nn2, edge_dim=1)  # Set edge_dim to 1
 
         self.pool = global_mean_pool
 

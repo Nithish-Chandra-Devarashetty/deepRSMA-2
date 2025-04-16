@@ -9,12 +9,12 @@ class GCNNet(nn.Module):  # Renamed back to original class name
         nn1 = nn.Sequential(nn.Linear(in_channels, hidden_channels),
                             nn.ReLU(),
                             nn.Linear(hidden_channels, hidden_channels))
-        self.conv1 = GINEConv(nn1)
-        
+        self.conv1 = GINEConv(nn1, edge_dim=3)  # Set edge_dim to 3 for bond features
+
         nn2 = nn.Sequential(nn.Linear(hidden_channels, hidden_channels),
                             nn.ReLU(),
                             nn.Linear(hidden_channels, hidden_channels))
-        self.conv2 = GINEConv(nn2)
+        self.conv2 = GINEConv(nn2, edge_dim=3)  # Set edge_dim to 3 for bond features
 
         self.pool = global_mean_pool
 
