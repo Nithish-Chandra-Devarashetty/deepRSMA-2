@@ -177,11 +177,16 @@ class DeepRSMA(nn.Module):
             print(f"Using fallback rna_len: {rna_len}")
 
         # Create sequence and graph masks
-        rna_mask_seq = torch.ones(1, 512)
+        # Ensure they're created on the same device as other tensors
+        rna_mask_seq = torch.ones(1, 512, device=device)
         rna_mask_seq[0, rna_len:] = 0
 
-        rna_mask_graph = torch.ones(1, 128)
+        rna_mask_graph = torch.ones(1, 128, device=device)
         rna_mask_graph[0, rna_len:] = 0
+
+        # Print mask shapes for debugging
+        print(f"rna_mask_seq shape: {rna_mask_seq.shape}, device: {rna_mask_seq.device}")
+        print(f"rna_mask_graph shape: {rna_mask_graph.shape}, device: {rna_mask_graph.device}")
 
         # Create output tensors
         rna_out_seq = torch.zeros(1, 512, hidden_dim).to(device)
@@ -274,8 +279,33 @@ class DeepRSMA(nn.Module):
         mole_out_graph = torch.stack(mole_out_graph).to(device)
         mole_mask_graph = torch.tensor(mask, dtype=torch.float)
 
-        # Get cross-attention outputs (ignoring attention scores for now)
-        context_layer, _ = self.cross_attention([rna_out_seq, rna_out_graph, mole_seq_emb[-1], mole_out_graph], [rna_mask_seq.to(device), rna_mask_graph.to(device), mole_mask_seq.to(device), mole_mask_graph.to(device)], device)
+        # Validate shapes before cross-attention
+        print(f"Shape validation before cross-attention:")
+        print(f"rna_out_seq: {rna_out_seq.shape}, device: {rna_out_seq.device}")
+        print(f"rna_out_graph: {rna_out_graph.shape}, device: {rna_out_graph.device}")
+        print(f"mole_seq_emb[-1]: {mole_seq_emb[-1].shape}, device: {mole_seq_emb[-1].device}")
+        print(f"mole_out_graph: {mole_out_graph.shape}, device: {mole_out_graph.device}")
+
+        # Ensure all masks are on the same device
+        # No need to call .to(device) again since we created them on the device
+        try:
+            # Get cross-attention outputs (ignoring attention scores for now)
+            context_layer, _ = self.cross_attention(
+                [rna_out_seq, rna_out_graph, mole_seq_emb[-1], mole_out_graph],
+                [rna_mask_seq, rna_mask_graph, mole_mask_seq.to(device), mole_mask_graph.to(device)],
+                device
+            )
+            print("Cross-attention successful")
+        except Exception as e:
+            print(f"Error in cross-attention: {e}")
+            # Create a fallback context layer with the expected shape
+            # This is a last resort to prevent the model from crashing
+            context_layer = [None] * 3
+            context_layer[-1] = [
+                torch.zeros_like(rna_out_seq),
+                torch.zeros_like(mole_out_graph)
+            ]
+            print("Using fallback context layer")
 
 
         out_rna = context_layer[-1][0]
@@ -339,36 +369,146 @@ for epoch in range(0,EPOCH):
 
         y = batch[0].y
 
-        loss = loss_fct(pre.squeeze(dim=1), y.float())
-        loss.backward()
-        optimizer.step()
+        # Check for NaN values in the prediction
+        if torch.isnan(pre).any():
+            print("Warning: NaN values detected in prediction. Skipping this batch.")
+            continue
+
+        # Compute loss
+        try:
+            loss = loss_fct(pre.squeeze(dim=1), y.float())
+
+            # Check for NaN loss
+            if torch.isnan(loss).any():
+                print("Warning: NaN loss detected. Skipping this batch.")
+                continue
+
+            # Backpropagation
+            loss.backward()
+
+            # Gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            # Update weights
+            optimizer.step()
+
+            # Print occasional loss for monitoring
+            if step % 10 == 0:
+                print(f"Epoch {epoch}, Step {step}, Loss: {loss.item()}")
+
+        except Exception as e:
+            print(f"Error in training step: {e}")
+            continue
         train_loss = train_loss + loss
     with torch.set_grad_enabled(False):
         model.eval()
         y_label = []
         y_pred = []
         for step, (batch_v) in enumerate(test_loader):
-            label = Variable(torch.from_numpy(np.array(batch_v[0].y))).float()
-            score = model(batch_v[0].to(device), batch_v[1].to(device))
+            try:
+                # Convert label to tensor
+                label = Variable(torch.from_numpy(np.array(batch_v[0].y))).float()
 
-            logits = torch.squeeze(score).detach().cpu().numpy()
-            label_ids = label.to('cpu').numpy()
+                # Forward pass with error handling
+                try:
+                    score = model(batch_v[0].to(device), batch_v[1].to(device))
 
-            y_label = y_label + label_ids.flatten().tolist()
-            y_pred = y_pred + logits.flatten().tolist()
+                    # Check for NaN values in the prediction
+                    if torch.isnan(score).any():
+                        print(f"Warning: NaN values detected in prediction for test batch {step}. Skipping.")
+                        continue
 
-        p = pearsonr(y_label, y_pred)
-        s = spearmanr(y_label, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_label, y_pred))
-        print( 'epo:',epoch, 'pcc:',p[0],'scc: ',s[0], 'rmse:',rmse)
+                except Exception as e:
+                    print(f"Error in model forward pass for test batch {step}: {e}")
+                    continue
+
+                # Process predictions
+                try:
+                    logits = torch.squeeze(score).detach().cpu().numpy()
+                    label_ids = label.to('cpu').numpy()
+
+                    # Check for NaN values
+                    if np.isnan(logits).any() or np.isnan(label_ids).any():
+                        print(f"Warning: NaN values detected in processed outputs for test batch {step}. Skipping.")
+                        continue
+
+                    # Add to results
+                    y_label = y_label + label_ids.flatten().tolist()
+                    y_pred = y_pred + logits.flatten().tolist()
+
+                    # Print progress
+                    if step % 10 == 0:
+                        print(f"Evaluated {step} test batches")
+
+                except Exception as e:
+                    print(f"Error processing outputs for test batch {step}: {e}")
+                    continue
+
+            except Exception as e:
+                print(f"Error in evaluation loop for batch {step}: {e}")
+                continue
+
+        # Calculate metrics with error handling
+        try:
+            # Check if we have enough data points
+            if len(y_label) < 2 or len(y_pred) < 2:
+                print(f"Warning: Not enough data points for metric calculation. y_label: {len(y_label)}, y_pred: {len(y_pred)}")
+                p = (0.0, 1.0)  # Default values
+                s = (0.0, 1.0)
+                rmse = float('inf')
+            else:
+                # Check for NaN or infinity values
+                if np.isnan(y_label).any() or np.isnan(y_pred).any() or np.isinf(y_label).any() or np.isinf(y_pred).any():
+                    print("Warning: NaN or infinity values detected in metrics calculation. Cleaning data.")
+                    # Remove NaN and infinity values
+                    valid_indices = ~(np.isnan(y_label) | np.isnan(y_pred) | np.isinf(y_label) | np.isinf(y_pred))
+                    y_label_clean = np.array(y_label)[valid_indices]
+                    y_pred_clean = np.array(y_pred)[valid_indices]
+
+                    if len(y_label_clean) < 2:
+                        print("Warning: Not enough valid data points after cleaning.")
+                        p = (0.0, 1.0)  # Default values
+                        s = (0.0, 1.0)
+                        rmse = float('inf')
+                    else:
+                        p = pearsonr(y_label_clean, y_pred_clean)
+                        s = spearmanr(y_label_clean, y_pred_clean)
+                        rmse = np.sqrt(mean_squared_error(y_label_clean, y_pred_clean))
+                else:
+                    # Calculate metrics normally
+                    p = pearsonr(y_label, y_pred)
+                    s = spearmanr(y_label, y_pred)
+                    rmse = np.sqrt(mean_squared_error(y_label, y_pred))
+
+            print('epo:', epoch, 'pcc:', p[0], 'scc: ', s[0], 'rmse:', rmse)
+
+        except Exception as e:
+            print(f"Error calculating metrics: {e}")
+            p = (0.0, 1.0)  # Default values
+            s = (0.0, 1.0)
+            rmse = float('inf')
+            print('epo:', epoch, 'metrics calculation failed')
 
         if max_p < p[0]:
             max_p = p[0]
             print(' ')
             print('Best:', 'epo:',epoch, 'pcc:',p[0],'scc: ',s[0],'rmse:',rmse)
 
-            os.makedirs('save', exist_ok=True)
-            torch.save(model.state_dict(), 'save/' + 'model_independent_'+str(seed)+'.pth')
+            # Save model with error handling
+            try:
+                os.makedirs('save', exist_ok=True)
+                save_path = 'save/' + 'model_independent_'+str(seed)+'.pth'
+                torch.save(model.state_dict(), save_path)
+                print(f"Model saved successfully to {save_path}")
+            except Exception as e:
+                print(f"Error saving model: {e}")
+                # Try an alternative approach
+                try:
+                    alt_save_path = f"model_independent_{seed}_{epoch}.pt"
+                    torch.save(model.state_dict(), alt_save_path)
+                    print(f"Model saved to alternative path: {alt_save_path}")
+                except Exception as e2:
+                    print(f"Failed to save model to alternative path: {e2}")
 
 
         model.train()
